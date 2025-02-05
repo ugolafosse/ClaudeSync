@@ -10,6 +10,7 @@ from tqdm import tqdm
 from claudesync.utils import compute_md5_hash
 from claudesync.exceptions import ProviderError
 from .compression import compress_content, decompress_content
+from claudesync.notes_processor import filter_excalidraw_data
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ class SyncManager:
         self.synced_files = {}
 
     def sync(self, local_files, remote_files):
+        """
+        Synchronize local and remote files.
+        """
+        logger.info("🔄 Starting file synchronization...")
         self.synced_files = {}  # Reset synced files at the start of sync
         if self.compression_algorithm == "none":
             self._sync_without_compression(local_files, remote_files)
@@ -122,6 +127,8 @@ class SyncManager:
             full_path = os.path.join(self.local_path, file_path)
             with open(full_path, "r", encoding="utf-8") as f:
                 content = f.read()
+            if file_path.endswith('.md'):
+                content = filter_excalidraw_data(content)
             packed_content.write(f"--- BEGIN FILE: {file_path} ---\n")
             packed_content.write(content)
             packed_content.write(f"\n--- END FILE: {file_path} ---\n")
@@ -203,17 +210,22 @@ class SyncManager:
         remote_checksum = compute_md5_hash(remote_content)
         if local_checksum != remote_checksum:
             logger.debug(f"Updating {local_file} on remote...")
-            with tqdm(total=2, desc=f"Updating {local_file}", leave=False) as pbar:
+            with open(
+                os.path.join(self.local_path, local_file), "r", encoding="utf-8"
+            ) as file:
+                content = file.read()
+                has_excalidraw = '.md' in local_file and '# Excalidraw Data' in content
+                if has_excalidraw:
+                    content = filter_excalidraw_data(content)
+            
+            with tqdm(total=2, desc=f"{'🎨 Filtering & ' if has_excalidraw else ''}Updating {local_file}", 
+                     leave=False, colour='yellow' if has_excalidraw else None) as pbar:
                 self.provider.delete_file(
                     self.active_organization_id,
                     self.active_project_id,
                     remote_file["uuid"],
                 )
                 pbar.update(1)
-                with open(
-                    os.path.join(self.local_path, local_file), "r", encoding="utf-8"
-                ) as file:
-                    content = file.read()
                 self.provider.upload_file(
                     self.active_organization_id,
                     self.active_project_id,
@@ -232,7 +244,12 @@ class SyncManager:
             os.path.join(self.local_path, local_file), "r", encoding="utf-8"
         ) as file:
             content = file.read()
-        with tqdm(total=1, desc=f"Uploading {local_file}", leave=False) as pbar:
+            has_excalidraw = '.md' in local_file and '# Excalidraw Data' in content
+            if has_excalidraw:
+                content = filter_excalidraw_data(content)
+        
+        with tqdm(total=1, desc=f"{'🎨 Filtering & ' if has_excalidraw else ''}Uploading {local_file}", 
+                 leave=False, colour='yellow' if has_excalidraw else None) as pbar:
             self.provider.upload_file(
                 self.active_organization_id, self.active_project_id, local_file, content
             )

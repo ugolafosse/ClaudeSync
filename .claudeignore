@@ -1,0 +1,8 @@
+.github/
+.venv/
+.vscode/
+.gitignore
+src/
+tests/
+
+
